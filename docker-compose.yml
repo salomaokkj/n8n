@@ -1,0 +1,317 @@
+version: "3.7"
+services:
+
+## --------------------------- ORION --------------------------- ##
+
+  n8n_n8n_prod_editor:
+    image: n8nio/n8n:1.116.2 ## Versão do N8N
+    command: start
+
+    networks:
+      - net_public ## Nome da rede interna
+
+    environment:
+      ## 🗄️ Banco de Dados (PostgreSQL)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+
+     ## 🔐 API REST
+      - N8N_REST_ENDPOINT=rest
+      - N8N_API_ALLOW_EXTERNAL=true
+      - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
+
+      ## 🔐 Criptografia
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      ## 🌐 URLs e Configurações de Acesso
+      - N8N_HOST=${N8N_HOST}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_PROTOCOL=https
+      - N8N_TRUST_PROXY=true
+
+    
+
+      - N8N_ENDPOINT_WEBHOOK=webhook
+      - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
+      - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
+
+      ## ⚙️ Ambiente de Execução
+      - NODE_ENV=production
+      - EXECUTIONS_MODE=queue
+      - EXECUTIONS_TIMEOUT=3600
+      - EXECUTIONS_TIMEOUT_MAX=7200
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_RUNNERS_MODE=internal
+
+      ## 📦 Pacotes e Nós Comunitários
+      - N8N_REINSTALL_MISSING_PACKAGES=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_NODE_PATH=/home/node/.n8n/nodes
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      ## 📧 SMTP (Envio de E-mails)
+      - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
+      - N8N_SMTP_USER=${N8N_SMTP_USER}
+      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
+      - N8N_SMTP_HOST=smtp.gmail.com
+      - N8N_SMTP_PORT=465
+      - N8N_SMTP_SSL=false
+
+      ## 🔁 Redis (Fila de Execução)
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_DB=2
+
+      ## 📊 Métricas
+      - N8N_METRICS=true
+
+      ## ⏱️ Execuções e Limpeza
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+
+      ## 🧠 Recursos de IA
+      - N8N_AI_ENABLED=false
+      - N8N_AI_PROVIDER=openai
+      - N8N_AI_OPENAI_API_KEY=
+
+      ## 🧰 Permissões em Funções Personalizadas
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
+
+      ## 🕒 Fuso Horário
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.n8n_n8n_prod_editor.rule=Host(`${DNS_EDITOR}`) ## Url do Editor do N8N
+        - traefik.http.routers.n8n_n8n_prod_editor.entrypoints=websecure
+        - traefik.http.routers.n8n_n8n_prod_editor.priority=1
+        - traefik.http.routers.n8n_n8n_prod_editor.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.n8n_n8n_prod_editor.tls=true
+        - traefik.http.routers.n8n_n8n_prod_editor.service=n8n_n8n_prod_editor
+        - traefik.http.services.n8n_n8n_prod_editor.loadbalancer.server.port=5678
+        - traefik.http.services.n8n_n8n_prod_editor.loadbalancer.passHostHeader=1
+
+## --------------------------- ORION --------------------------- ##
+
+  n8n_n8n_prod_webhook:
+    image: n8nio/n8n:1.116.2 ## Versão do N8N
+    command: webhook
+
+    networks:
+      - net_public ## Nome da rede interna
+
+    environment:
+      ## 🗄️ Banco de Dados (PostgreSQL)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+
+    ## 🔐 API REST
+      - N8N_REST_ENDPOINT=rest
+      - N8N_API_ALLOW_EXTERNAL=true
+      - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
+      
+      ## 🔐 Criptografia
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      ## 🌐 URLs e Configurações de Acesso
+      - N8N_HOST=${N8N_HOST}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_PROTOCOL=https
+      - N8N_TRUST_PROXY=true
+
+ ## 🌐 Webhook
+      - N8N_ENDPOINT_WEBHOOK=webhook
+      - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
+      - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
+
+      ## ⚙️ Ambiente de Execução
+      - NODE_ENV=production
+      - EXECUTIONS_MODE=queue
+      - EXECUTIONS_TIMEOUT=3600
+      - EXECUTIONS_TIMEOUT_MAX=7200
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_RUNNERS_MODE=internal
+
+      ## 📦 Pacotes e Nós Comunitários
+      - N8N_REINSTALL_MISSING_PACKAGES=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_NODE_PATH=/home/node/.n8n/nodes
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      ## 📧 SMTP (Envio de E-mails)
+      - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
+      - N8N_SMTP_USER=${N8N_SMTP_USER}
+      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
+      - N8N_SMTP_HOST=smtp.gmail.com
+      - N8N_SMTP_PORT=465
+      - N8N_SMTP_SSL=false
+
+      ## 🔁 Redis (Fila de Execução)
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_DB=2
+
+      ## 📊 Métricas
+      - N8N_METRICS=true
+
+      ## ⏱️ Execuções e Limpeza
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+
+      ## 🧠 Recursos de IA
+      - N8N_AI_ENABLED=false
+      - N8N_AI_PROVIDER=openai
+      - N8N_AI_OPENAI_API_KEY=
+
+      ## 🧰 Permissões em Funções Personalizadas
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
+
+      ## 🕒 Fuso Horário
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+      
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.n8n_n8n_prod_webhook.rule=(Host(`${DNS_WEBHOOK}`)) ## Url do Webhook do N8N
+        - traefik.http.routers.n8n_n8n_prod_webhook.entrypoints=websecure
+        - traefik.http.routers.n8n_n8n_prod_webhook.priority=1
+        - traefik.http.routers.n8n_n8n_prod_webhook.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.n8n_n8n_prod_webhook.tls=true
+        - traefik.http.routers.n8n_n8n_prod_webhook.service=n8n_n8n_prod_webhook
+        - traefik.http.services.n8n_n8n_prod_webhook.loadbalancer.server.port=5678
+        - traefik.http.services.n8n_n8n_prod_webhook.loadbalancer.passHostHeader=1
+
+## --------------------------- ORION --------------------------- ##
+
+  n8n_n8n_prod_worker:
+    image: n8nio/n8n:1.116.2 ## Versão do N8N
+    command: worker --concurrency=10
+
+    networks:
+      - net_public ## Nome da rede interna
+
+    environment:
+      ## 🗄️ Banco de Dados (PostgreSQL)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+
+    ## 🔐 API REST
+      - N8N_REST_ENDPOINT=rest
+      - N8N_API_ALLOW_EXTERNAL=true
+      - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
+      
+      ## 🔐 Criptografia
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      ## 🌐 URLs e Configurações de Acesso
+      - N8N_HOST=${N8N_HOST}
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - N8N_PROTOCOL=https
+      - N8N_TRUST_PROXY=true
+      
+      ## 🌐 Webhook
+      - N8N_ENDPOINT_WEBHOOK=webhook
+      - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
+      - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
+
+      ## ⚙️ Ambiente de Execução
+      - NODE_ENV=production
+      - EXECUTIONS_MODE=queue
+      - EXECUTIONS_TIMEOUT=3600
+      - EXECUTIONS_TIMEOUT_MAX=7200
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_RUNNERS_MODE=internal
+
+      ## 📦 Pacotes e Nós Comunitários
+      - N8N_REINSTALL_MISSING_PACKAGES=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_NODE_PATH=/home/node/.n8n/nodes
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+
+      ## 📧 SMTP (Envio de E-mails)
+      - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
+      - N8N_SMTP_USER=${N8N_SMTP_USER}
+      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
+      - N8N_SMTP_HOST=smtp.gmail.com
+      - N8N_SMTP_PORT=465
+      - N8N_SMTP_SSL=false
+
+      ## 🔁 Redis (Fila de Execução)
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+      - QUEUE_BULL_REDIS_DB=2
+
+      ## 📊 Métricas
+      - N8N_METRICS=true
+
+      ## ⏱️ Execuções e Limpeza
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+
+
+      ## 🧰 Permissões em Funções Personalizadas
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
+
+      ## 🕒 Fuso Horário
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - TZ=America/Sao_Paulo
+      
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1024M
+
+## --------------------------- ORION --------------------------- ##
+
+networks:
+  net_public: ## Nome da rede interna
+    external: true
+    name: net_public ## Nome da rede interna
