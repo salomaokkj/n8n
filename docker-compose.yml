@@ -1,46 +1,46 @@
-version: "3.7"
 services:
 
-## --------------------------- ORION --------------------------- ##
-
-  n8n_n8n_prod_editor:
-    image: n8nio/n8n:1.116.2 ## Versão do N8N
-    command: start
-
+  ## --------------------------- N8N EDITOR --------------------------- ##
+  n8n_editor:
+    image: n8nio/n8n:1.116.2
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        export DB_POSTGRESDB_HOST=postgres
+        export DB_POSTGRESDB_PORT=5432
+        export DB_POSTGRESDB_DATABASE=n8n
+        export DB_POSTGRESDB_USER=postgres
+        export DB_POSTGRESDB_PASSWORD=$$(cat /run/secrets/postgres_password)
+        export N8N_ENCRYPTION_KEY=$$(cat /run/secrets/n8n_encryption_key)
+        export N8N_SMTP_PASS=$$(cat /run/secrets/n8n_smtp_pass)
+        exec n8n start
     networks:
-      - net_public ## Nome da rede interna
-
+      - net_public
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5678/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     environment:
-      ## 🗄️ Banco de Dados (PostgreSQL)
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
-      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
-      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
-      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
-      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
 
-     ## 🔐 API REST
       - N8N_REST_ENDPOINT=rest
       - N8N_API_ALLOW_EXTERNAL=true
       - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
-
-      ## 🔐 Criptografia
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-
-      ## 🌐 URLs e Configurações de Acesso
       - N8N_HOST=${N8N_HOST}
       - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - N8N_PROTOCOL=https
       - N8N_TRUST_PROXY=true
-
-    
-
       - N8N_ENDPOINT_WEBHOOK=webhook
       - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
       - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
-
-      ## ⚙️ Ambiente de Execução
       - NODE_ENV=production
       - EXECUTIONS_MODE=queue
       - EXECUTIONS_TIMEOUT=3600
@@ -48,45 +48,36 @@ services:
       - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
       - N8N_RUNNERS_ENABLED=true
       - N8N_RUNNERS_MODE=internal
-
-      ## 📦 Pacotes e Nós Comunitários
       - N8N_REINSTALL_MISSING_PACKAGES=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
       - N8N_NODE_PATH=/home/node/.n8n/nodes
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-
-      ## 📧 SMTP (Envio de E-mails)
       - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
       - N8N_SMTP_USER=${N8N_SMTP_USER}
-      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
       - N8N_SMTP_HOST=smtp.gmail.com
       - N8N_SMTP_PORT=465
       - N8N_SMTP_SSL=false
-
-      ## 🔁 Redis (Fila de Execução)
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_DB=2
-
-      ## 📊 Métricas
       - N8N_METRICS=true
-
-      ## ⏱️ Execuções e Limpeza
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=336
-
-      ## 🧠 Recursos de IA
       - N8N_AI_ENABLED=false
       - N8N_AI_PROVIDER=openai
-      - N8N_AI_OPENAI_API_KEY=
-
-      ## 🧰 Permissões em Funções Personalizadas
       - NODE_FUNCTION_ALLOW_BUILTIN=*
       - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
-
-      ## 🕒 Fuso Horário
       - GENERIC_TIMEZONE=America/Sao_Paulo
       - TZ=America/Sao_Paulo
+      # Pin these explicitly instead of relying on n8n's current defaults
+      # (n8n itself warns on startup that the defaults are changing).
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+      - N8N_GIT_NODE_DISABLE_BARE_REPOS=true
+
+    secrets:
+      - postgres_password
+      - n8n_encryption_key
+      - n8n_smtp_pass
 
     deploy:
       mode: replicated
@@ -94,60 +85,85 @@ services:
       placement:
         constraints:
           - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 60s
       resources:
         limits:
           cpus: "1"
           memory: 1024M
       labels:
         - traefik.enable=true
-        - traefik.http.routers.n8n_n8n_prod_editor.rule=Host(`${DNS_EDITOR}`) ## Url do Editor do N8N
+        - traefik.http.routers.n8n_n8n_prod_editor.rule=Host(`${DNS_EDITOR}`)
         - traefik.http.routers.n8n_n8n_prod_editor.entrypoints=websecure
         - traefik.http.routers.n8n_n8n_prod_editor.priority=1
-        - traefik.http.routers.n8n_n8n_prod_editor.tls.certresolver=letsencryptresolver
+        # NOTE: this Traefik instance has no `letsencryptresolver`
+        # certificatesResolver configured (confirmed via its logs: "Router
+        # uses a nonexistent certificate resolver"), so a router that
+        # references it gets dropped entirely. Matching the working
+        # chatwoot_crm_app router in this same Traefik, we terminate TLS
+        # with its default certificate instead. Cloudflare Tunnel is the
+        # public-facing HTTPS endpoint here, so browsers never see this
+        # internal cert. If you want a publicly-trusted cert on the
+        # Traefik<->tunnel hop too, configure a real certificatesResolver
+        # on the traefik stack (outside this directory) and restore this
+        # line.
         - traefik.http.routers.n8n_n8n_prod_editor.tls=true
+        # This router.service name must match the services.<name> block
+        # below - it previously pointed at "n8n_editor", which was never
+        # defined (only "n8n_n8n_prod_editor" was), so Traefik logged
+        # `the service "n8n_editor@swarm" does not exist` and every
+        # request 404'd even though the router itself matched.
         - traefik.http.routers.n8n_n8n_prod_editor.service=n8n_n8n_prod_editor
         - traefik.http.services.n8n_n8n_prod_editor.loadbalancer.server.port=5678
         - traefik.http.services.n8n_n8n_prod_editor.loadbalancer.passHostHeader=1
 
-## --------------------------- ORION --------------------------- ##
-
-  n8n_n8n_prod_webhook:
-    image: n8nio/n8n:1.116.2 ## Versão do N8N
-    command: webhook
-
+  ## --------------------------- N8N WEBHOOK --------------------------- ##
+  n8n_webhook:
+    image: n8nio/n8n:1.116.2
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        export DB_POSTGRESDB_PASSWORD=$$(cat /run/secrets/postgres_password)
+        export N8N_ENCRYPTION_KEY=$$(cat /run/secrets/n8n_encryption_key)
+        export N8N_SMTP_PASS=$$(cat /run/secrets/n8n_smtp_pass)
+        # Swarm has no depends_on ordering, and n8n has no "skip migrations"
+        # flag: editor/webhook/worker all race to migrate the same DB on a
+        # cold stack start. A short head start for the editor (which runs
+        # migrations first) avoids the harmless-but-noisy migration
+        # failures seen in the logs; already-applied migrations are still
+        # a safe no-op either way.
+        sleep 15
+        exec n8n webhook
     networks:
-      - net_public ## Nome da rede interna
-
+      - net_public
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5678/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     environment:
-      ## 🗄️ Banco de Dados (PostgreSQL)
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
-      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
-      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
-      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
-      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
 
-    ## 🔐 API REST
       - N8N_REST_ENDPOINT=rest
       - N8N_API_ALLOW_EXTERNAL=true
       - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
-      
-      ## 🔐 Criptografia
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-
-      ## 🌐 URLs e Configurações de Acesso
       - N8N_HOST=${N8N_HOST}
       - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - N8N_PROTOCOL=https
       - N8N_TRUST_PROXY=true
-
- ## 🌐 Webhook
       - N8N_ENDPOINT_WEBHOOK=webhook
       - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
       - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
-
-      ## ⚙️ Ambiente de Execução
       - NODE_ENV=production
       - EXECUTIONS_MODE=queue
       - EXECUTIONS_TIMEOUT=3600
@@ -155,106 +171,106 @@ services:
       - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
       - N8N_RUNNERS_ENABLED=true
       - N8N_RUNNERS_MODE=internal
-
-      ## 📦 Pacotes e Nós Comunitários
       - N8N_REINSTALL_MISSING_PACKAGES=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
       - N8N_NODE_PATH=/home/node/.n8n/nodes
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-
-      ## 📧 SMTP (Envio de E-mails)
       - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
       - N8N_SMTP_USER=${N8N_SMTP_USER}
-      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
       - N8N_SMTP_HOST=smtp.gmail.com
       - N8N_SMTP_PORT=465
       - N8N_SMTP_SSL=false
-
-      ## 🔁 Redis (Fila de Execução)
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_DB=2
-
-      ## 📊 Métricas
       - N8N_METRICS=true
-
-      ## ⏱️ Execuções e Limpeza
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=336
-
-      ## 🧠 Recursos de IA
       - N8N_AI_ENABLED=false
       - N8N_AI_PROVIDER=openai
-      - N8N_AI_OPENAI_API_KEY=
-
-      ## 🧰 Permissões em Funções Personalizadas
       - NODE_FUNCTION_ALLOW_BUILTIN=*
       - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
-
-      ## 🕒 Fuso Horário
       - GENERIC_TIMEZONE=America/Sao_Paulo
       - TZ=America/Sao_Paulo
-      
+      # Pin these explicitly instead of relying on n8n's current defaults
+      # (n8n itself warns on startup that the defaults are changing).
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+      - N8N_GIT_NODE_DISABLE_BARE_REPOS=true
+
+    secrets:
+      - postgres_password
+      - n8n_encryption_key
+      - n8n_smtp_pass
+
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
           - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 60s
       resources:
         limits:
           cpus: "1"
           memory: 1024M
       labels:
         - traefik.enable=true
-        - traefik.http.routers.n8n_n8n_prod_webhook.rule=(Host(`${DNS_WEBHOOK}`)) ## Url do Webhook do N8N
+        - traefik.http.routers.n8n_n8n_prod_webhook.rule=Host(`${DNS_WEBHOOK}`)
         - traefik.http.routers.n8n_n8n_prod_webhook.entrypoints=websecure
         - traefik.http.routers.n8n_n8n_prod_webhook.priority=1
-        - traefik.http.routers.n8n_n8n_prod_webhook.tls.certresolver=letsencryptresolver
+        # See n8n_editor above: letsencryptresolver isn't configured on
+        # this Traefik, so drop it and use Traefik's default cert like
+        # chatwoot_crm_app does.
         - traefik.http.routers.n8n_n8n_prod_webhook.tls=true
+        # Same service-name mismatch as n8n_editor: this pointed at the
+        # never-defined "n8n_webhook" service instead of
+        # "n8n_n8n_prod_webhook", so it 404'd on every request.
         - traefik.http.routers.n8n_n8n_prod_webhook.service=n8n_n8n_prod_webhook
         - traefik.http.services.n8n_n8n_prod_webhook.loadbalancer.server.port=5678
         - traefik.http.services.n8n_n8n_prod_webhook.loadbalancer.passHostHeader=1
 
-## --------------------------- ORION --------------------------- ##
-
-  n8n_n8n_prod_worker:
-    image: n8nio/n8n:1.116.2 ## Versão do N8N
-    command: worker --concurrency=10
-
+  ## --------------------------- N8N WORKER --------------------------- ##
+  n8n_worker:
+    image: n8nio/n8n:1.116.2
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        export DB_POSTGRESDB_PASSWORD=$$(cat /run/secrets/postgres_password)
+        export N8N_ENCRYPTION_KEY=$$(cat /run/secrets/n8n_encryption_key)
+        export N8N_SMTP_PASS=$$(cat /run/secrets/n8n_smtp_pass)
+        # See n8n_webhook: same rationale for giving the editor a head
+        # start on DB migrations before this process also connects.
+        sleep 15
+        exec n8n worker --concurrency=10
     networks:
-      - net_public ## Nome da rede interna
-
+      - net_public
+    # No HTTP healthcheck here: the worker's port 5678 only serves Bull
+    # Board/metrics internals, not /healthz (confirmed 404) - unlike the
+    # editor and webhook services. Swarm would kill-and-reschedule this
+    # task forever if we pointed a healthcheck at a path that never returns.
     environment:
-      ## 🗄️ Banco de Dados (PostgreSQL)
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
-      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
-      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
-      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
-      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=postgres
 
-    ## 🔐 API REST
       - N8N_REST_ENDPOINT=rest
       - N8N_API_ALLOW_EXTERNAL=true
       - N8N_DISABLE_PRODUCTION_MAIN_MENU=true
-      
-      ## 🔐 Criptografia
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-
-      ## 🌐 URLs e Configurações de Acesso
       - N8N_HOST=${N8N_HOST}
       - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - N8N_PROTOCOL=https
       - N8N_TRUST_PROXY=true
-      
-      ## 🌐 Webhook
       - N8N_ENDPOINT_WEBHOOK=webhook
       - N8N_ENDPOINT_WEBHOOK_TEST=webhook-test
       - N8N_ENDPOINT_WEBHOOK_WAIT=webhook-waiting
-
-      ## ⚙️ Ambiente de Execução
       - NODE_ENV=production
       - EXECUTIONS_MODE=queue
       - EXECUTIONS_TIMEOUT=3600
@@ -262,56 +278,62 @@ services:
       - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
       - N8N_RUNNERS_ENABLED=true
       - N8N_RUNNERS_MODE=internal
-
-      ## 📦 Pacotes e Nós Comunitários
       - N8N_REINSTALL_MISSING_PACKAGES=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=true
       - N8N_NODE_PATH=/home/node/.n8n/nodes
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-
-      ## 📧 SMTP (Envio de E-mails)
       - N8N_SMTP_SENDER=${N8N_SMTP_SENDER}
       - N8N_SMTP_USER=${N8N_SMTP_USER}
-      - N8N_SMTP_PASS=${N8N_SMTP_PASS}
       - N8N_SMTP_HOST=smtp.gmail.com
       - N8N_SMTP_PORT=465
       - N8N_SMTP_SSL=false
-
-      ## 🔁 Redis (Fila de Execução)
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - QUEUE_BULL_REDIS_DB=2
-
-      ## 📊 Métricas
       - N8N_METRICS=true
-
-      ## ⏱️ Execuções e Limpeza
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=336
-
-
-      ## 🧰 Permissões em Funções Personalizadas
       - NODE_FUNCTION_ALLOW_BUILTIN=*
       - NODE_FUNCTION_ALLOW_EXTERNAL=moment,lodash
-
-      ## 🕒 Fuso Horário
       - GENERIC_TIMEZONE=America/Sao_Paulo
       - TZ=America/Sao_Paulo
-      
+      # Pin these explicitly instead of relying on n8n's current defaults
+      # (n8n itself warns on startup that the defaults are changing).
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
+      - N8N_GIT_NODE_DISABLE_BARE_REPOS=true
+
+    secrets:
+      - postgres_password
+      - n8n_encryption_key
+      - n8n_smtp_pass
+
     deploy:
       mode: replicated
       replicas: 1
       placement:
         constraints:
           - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 60s
       resources:
         limits:
           cpus: "1"
           memory: 1024M
 
-## --------------------------- ORION --------------------------- ##
-
+## --------------------------- REDE --------------------------- ##
 networks:
-  net_public: ## Nome da rede interna
+  net_public:
     external: true
-    name: net_public ## Nome da rede interna
+    name: net_public
+
+## --------------------------- SECRETS --------------------------- ##
+secrets:
+  postgres_password:
+    external: true
+  n8n_encryption_key:
+    external: true
+  n8n_smtp_pass:
+    external: true
